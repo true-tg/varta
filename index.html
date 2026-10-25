@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ВАРТА — ситуаційний центр Києва</title>
+<title>ВАРТА — внутрішній ситуаційний центр</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;600&family=Unbounded:wght@600&display=swap" rel="stylesheet">
@@ -62,8 +62,7 @@ body.placing #map{cursor:crosshair}
   <div class="stat"><b id="n24">–</b> за 24 год</div>
   <div class="stat"><b id="nAll">–</b> усього</div>
   <div class="sp"></div>
-  <button id="add" hidden>Занести подію</button>
-  <button id="login" class="ghost">Увійти</button>
+  <button id="add">Занести подію</button>
 </header>
 <div id="legend"></div>
 
@@ -106,6 +105,7 @@ const TYPES = {debris:['Падіння уламків','#f2b84b'], hit:['Пря�
                infra:['Пошкодження інфраструктури','#5fd4d0'], uxo:['Нерозірваний боєприпас','#b99cff']};
 const IMPACT = {residential:'Житлова забудова', critical:'Критична інфраструктура', commercial:'Комерційний об’єкт', open:'Відкрита територія'};
 const DISTRICTS = ['Голосіївський','Дарницький','Деснянський','Дніпровський','Оболонський','Печерський','Подільський','Святошинський','Солом’янський','Шевченківський'];
+const STATUS = {new:'нова', working:'опрацьовується', closed:'закрита'};
 const SERVICES = ['ДСНС','Поліція','Швидка','Комунальники','Сапери','Енергетики'];
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -113,7 +113,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const map = L.map('map', {center:[50.4501,30.5234], zoom:11, minZoom:9, maxBounds:[[50.0,30.0],[50.9,31.1]]});
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18, attribution:'© OpenStreetMap contributors'}).addTo(map);
 const layer = L.layerGroup().addTo(map);
-let rows = [], session = null, placing = false, draft = null;
+let rows = [], placing = false, draft = null;
 const hidden = new Set();
 
 // легенда-фільтр
@@ -136,28 +136,19 @@ function draw() {
     const [name, color] = TYPES[r.type] || ['?', '#fff'];
     const old = new Date(r.occurred_at) < day;
     const icon = L.divIcon({className:'', html:`<div class="pt ${old?'old':''}" style="--c:${color}"></div>`, iconSize:[16,16]});
-    const full = 'killed' in r;
     L.marker([r.lat, r.lng], {icon}).addTo(layer).bindPopup(
       `<b>${name}</b><br>${new Date(r.occurred_at).toLocaleString('uk-UA')}<br>${esc(r.district)} · ${IMPACT[r.impact] || ''}` +
-      (full ? `<br>${esc(r.address)}<br>Загиблі: ${r.killed}, поранені: ${r.injured}, будівлі: ${r.buildings}<br>Служби: ${esc((r.services||[]).join(', '))}<br>${esc(r.note)}` : '<br><i>Координати узагальнено, дані із затримкою 24 год</i>'));
+      `<br>${esc(r.address)}<br>Загиблі: ${r.killed}, поранені: ${r.injured}, будівлі: ${r.buildings}<br>Служби: ${esc((r.services||[]).join(', '))}<br>Статус: ${STATUS[r.status]||''}<br>${esc(r.note)}`);
   });
   $('#n24').textContent = rows.filter(r => new Date(r.occurred_at) >= day).length;
   $('#nAll').textContent = rows.length;
 }
 
 async function load() {
-  ({data:{session}} = await sb.auth.getSession());
-  $('#add').hidden = !session; $('#login').textContent = session ? 'Вийти' : 'Увійти';
-  const {data, error} = await sb.from(session ? 'incidents' : 'incidents_public').select('*').order('occurred_at', {ascending:false}).limit(2000);
+  const {data, error} = await sb.from('incidents').select('*').order('occurred_at', {ascending:false}).limit(5000);
   if (error) { console.error(error); return; }
   rows = data; draw();
 }
-
-$('#login').onclick = async () => {
-  if (session) { await sb.auth.signOut(); return load(); }
-  const email = prompt('Службовий email для входу (прийде посилання):');
-  if (email) { const {error} = await sb.auth.signInWithOtp({email}); alert(error ? error.message : 'Перевірте пошту.'); }
-};
 
 // режим постановки точки
 $('#add').onclick = () => { placing = true; document.body.classList.add('placing'); $('#panel').classList.add('open'); $('#hint').hidden = false; f.hidden = true; };
@@ -186,7 +177,7 @@ f.onsubmit = async e => {
 };
 
 sb.channel('inc').on('postgres_changes', {event:'*', schema:'public', table:'incidents'}, load).subscribe();
-sb.auth.onAuthStateChange(load);
+load();
 </script>
 </body>
 </html>
