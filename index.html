@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ВАРТА — ситуаційний центр Києва</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;600&family=Unbounded:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0c1a2d;--ink2:#13294a;--line:#7fb3d5;--paper:#e9efe8;--amber:#f2b84b;--coral:#ef6f5e;--mute:#8aa3bd}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--ink);color:var(--paper);font:14px/1.45 Onest,system-ui,sans-serif}
+#map{position:absolute;inset:0;background:var(--ink)}
+/* Стилізація: OSM-плитки перефарбовано в синьо-кресленну гаму («ціанотипія») */
+.leaflet-tile-pane{filter:invert(1) hue-rotate(188deg) saturate(.75) brightness(.95) contrast(1.05)}
+#map::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:500;
+ background:radial-gradient(ellipse at center,transparent 55%,rgba(5,12,24,.75)),
+ repeating-linear-gradient(0deg,rgba(127,179,213,.05) 0 1px,transparent 1px 48px),
+ repeating-linear-gradient(90deg,rgba(127,179,213,.05) 0 1px,transparent 1px 48px)}
+header{position:absolute;z-index:700;top:12px;left:12px;right:12px;display:flex;gap:12px;align-items:center;pointer-events:none}
+header>*{pointer-events:auto}
+.brand{background:var(--ink);border:1px solid var(--line);padding:8px 14px;border-radius:2px 14px 2px 14px}
+.brand b{font:600 18px Unbounded,sans-serif;letter-spacing:.14em}
+.brand small{display:block;color:var(--mute);font-size:11px}
+.stat{background:rgba(12,26,45,.88);border:1px solid #27466b;padding:6px 12px;border-radius:2px 10px 2px 10px}
+.stat b{font:600 20px Unbounded,sans-serif;color:var(--amber)}
+.sp{flex:1}
+button{font:600 13px Onest,sans-serif;cursor:pointer;color:var(--ink);background:var(--amber);border:0;padding:10px 16px;border-radius:2px 12px 2px 12px}
+button.ghost{background:transparent;color:var(--paper);border:1px solid var(--line)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--paper);outline-offset:2px}
+#legend{position:absolute;z-index:700;left:12px;bottom:28px;background:rgba(12,26,45,.9);border:1px solid #27466b;padding:8px 10px;border-radius:2px 12px 2px 12px}
+#legend label{display:flex;gap:8px;align-items:center;padding:2px 0;cursor:pointer}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 30%,transparent)}
+.pt{width:16px;height:16px;border-radius:50%;background:var(--c);border:2px solid var(--ink);animation:p 2.4s ease-out infinite}
+.pt.old{animation:none;opacity:.7}
+@keyframes p{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 22px transparent}}
+@media (prefers-reduced-motion:reduce){.pt{animation:none}}
+#panel{position:absolute;z-index:800;top:0;right:0;bottom:0;width:min(380px,100%);background:var(--ink);border-left:1px solid var(--line);padding:16px;overflow:auto;transform:translateX(105%);transition:transform .25s}
+#panel.open{transform:none}
+#panel h2{font:600 15px Unbounded,sans-serif;margin:0 0 4px}
+.hint{color:var(--mute);margin:0 0 12px}
+label.f{display:block;margin:10px 0 0;color:var(--mute);font-size:12px}
+input,select,textarea{width:100%;margin-top:3px;background:var(--ink2);color:var(--paper);border:1px solid #27466b;padding:8px;border-radius:2px 8px 2px 8px;font:inherit}
+.row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.chk{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:4px}
+.chk label{display:flex;gap:4px;align-items:center;color:var(--paper)}
+.chk input{width:auto;margin:0}
+.actions{display:flex;gap:8px;margin-top:16px}
+#msg{margin-top:10px;color:var(--coral)}
+body.placing #map{cursor:crosshair}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--ink);color:var(--paper);border:1px solid var(--line);border-radius:2px 12px 2px 12px}
+.leaflet-popup-content b{font-family:Unbounded,sans-serif;font-size:13px}
+.leaflet-control-attribution{background:rgba(12,26,45,.8)!important;color:var(--mute)!important}
+.leaflet-control-attribution a{color:var(--line)!important}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<header>
+  <div class="brand"><b>ВАРТА</b><small>Візуалізація атак, реагування, тривог і аварій</small></div>
+  <div class="stat"><b id="n24">–</b> за 24 год</div>
+  <div class="stat"><b id="nAll">–</b> усього</div>
+  <div class="sp"></div>
+  <button id="add" hidden>Занести подію</button>
+  <button id="login" class="ghost">Увійти</button>
+</header>
+<div id="legend"></div>
+
+<aside id="panel" aria-label="Картка фіксації події">
+  <h2>Картка фіксації події</h2>
+  <p class="hint" id="hint">Клацніть на карті, щоб поставити точку. Її можна перетягнути.</p>
+  <form id="form" hidden>
+    <label class="f">Тип події<select name="type" required></select></label>
+    <label class="f">Дата і час<input type="datetime-local" name="occurred_at" required></label>
+    <div class="row">
+      <label class="f">Широта<input name="lat" readonly></label>
+      <label class="f">Довгота<input name="lng" readonly></label>
+      <label class="f">Район<select name="district" required></select></label>
+    </div>
+    <label class="f">Адреса або орієнтир<input name="address" maxlength="200"></label>
+    <label class="f">Що постраждало<select name="impact" required></select></label>
+    <div class="row">
+      <label class="f">Загиблі<input type="number" name="killed" min="0" value="0"></label>
+      <label class="f">Поранені<input type="number" name="injured" min="0" value="0"></label>
+      <label class="f">Будівлі<input type="number" name="buildings" min="0" value="0"></label>
+    </div>
+    <div class="f">Служби на місці</div>
+    <div class="chk" id="services"></div>
+    <label class="f">Статус<select name="status"><option value="new">Нова</option><option value="working">Опрацьовується</option><option value="closed">Закрита</option></select></label>
+    <label class="f">Джерело<input name="source" maxlength="120" placeholder="ДСНС, поліція, мешканець"></label>
+    <label class="f">Примітка<textarea name="note" rows="3" maxlength="500"></textarea></label>
+    <div class="actions"><button type="submit">Зберегти</button><button type="button" class="ghost" id="cancel">Скасувати</button></div>
+    <div id="msg" role="alert"></div>
+  </form>
+</aside>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const SB_URL = 'https://YOUR-PROJECT.supabase.co';   // ← ваш проєкт
+const SB_KEY = 'YOUR-ANON-PUBLIC-KEY';                // ← публічний anon key
+const sb = supabase.createClient(SB_URL, SB_KEY);
+
+const TYPES = {debris:['Падіння уламків','#f2b84b'], hit:['Прямий приліт','#ef6f5e'], fire:['Пожежа','#ff9e5e'],
+               infra:['Пошкодження інфраструктури','#5fd4d0'], uxo:['Нерозірваний боєприпас','#b99cff']};
+const IMPACT = {residential:'Житлова забудова', critical:'Критична інфраструктура', commercial:'Комерційний об’єкт', open:'Відкрита територія'};
+const DISTRICTS = ['Голосіївський','Дарницький','Деснянський','Дніпровський','Оболонський','Печерський','Подільський','Святошинський','Солом’янський','Шевченківський'];
+const SERVICES = ['ДСНС','Поліція','Швидка','Комунальники','Сапери','Енергетики'];
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const map = L.map('map', {center:[50.4501,30.5234], zoom:11, minZoom:9, maxBounds:[[50.0,30.0],[50.9,31.1]]});
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18, attribution:'© OpenStreetMap contributors'}).addTo(map);
+const layer = L.layerGroup().addTo(map);
+let rows = [], session = null, placing = false, draft = null;
+const hidden = new Set();
+
+// легенда-фільтр
+$('#legend').innerHTML = Object.entries(TYPES).map(([k,[n,c]]) =>
+  `<label><input type="checkbox" data-k="${k}" checked><span class="dot" style="--c:${c}"></span>${n}</label>`).join('');
+$('#legend').onchange = e => { e.target.checked ? hidden.delete(e.target.dataset.k) : hidden.add(e.target.dataset.k); draw(); };
+
+// форма
+const f = $('#form');
+f.type.innerHTML = Object.entries(TYPES).map(([k,[n]]) => `<option value="${k}">${n}</option>`).join('');
+f.impact.innerHTML = Object.entries(IMPACT).map(([k,n]) => `<option value="${k}">${n}</option>`).join('');
+f.district.innerHTML = '<option value="">—</option>' + DISTRICTS.map(d => `<option>${d}</option>`).join('');
+$('#services').innerHTML = SERVICES.map(s => `<label><input type="checkbox" value="${s}">${s}</label>`).join('');
+
+function draw() {
+  layer.clearLayers();
+  const day = Date.now() - 864e5;
+  const vis = rows.filter(r => !hidden.has(r.type));
+  vis.forEach(r => {
+    const [name, color] = TYPES[r.type] || ['?', '#fff'];
+    const old = new Date(r.occurred_at) < day;
+    const icon = L.divIcon({className:'', html:`<div class="pt ${old?'old':''}" style="--c:${color}"></div>`, iconSize:[16,16]});
+    const full = 'killed' in r;
+    L.marker([r.lat, r.lng], {icon}).addTo(layer).bindPopup(
+      `<b>${name}</b><br>${new Date(r.occurred_at).toLocaleString('uk-UA')}<br>${esc(r.district)} · ${IMPACT[r.impact] || ''}` +
+      (full ? `<br>${esc(r.address)}<br>Загиблі: ${r.killed}, поранені: ${r.injured}, будівлі: ${r.buildings}<br>Служби: ${esc((r.services||[]).join(', '))}<br>${esc(r.note)}` : '<br><i>Координати узагальнено, дані із затримкою 24 год</i>'));
+  });
+  $('#n24').textContent = rows.filter(r => new Date(r.occurred_at) >= day).length;
+  $('#nAll').textContent = rows.length;
+}
+
+async function load() {
+  ({data:{session}} = await sb.auth.getSession());
+  $('#add').hidden = !session; $('#login').textContent = session ? 'Вийти' : 'Увійти';
+  const {data, error} = await sb.from(session ? 'incidents' : 'incidents_public').select('*').order('occurred_at', {ascending:false}).limit(2000);
+  if (error) { console.error(error); return; }
+  rows = data; draw();
+}
+
+$('#login').onclick = async () => {
+  if (session) { await sb.auth.signOut(); return load(); }
+  const email = prompt('Службовий email для входу (прийде посилання):');
+  if (email) { const {error} = await sb.auth.signInWithOtp({email}); alert(error ? error.message : 'Перевірте пошту.'); }
+};
+
+// режим постановки точки
+$('#add').onclick = () => { placing = true; document.body.classList.add('placing'); $('#panel').classList.add('open'); $('#hint').hidden = false; f.hidden = true; };
+function closePanel() { placing = false; document.body.classList.remove('placing'); $('#panel').classList.remove('open'); if (draft) { map.removeLayer(draft); draft = null; } f.hidden = true; $('#msg').textContent = ''; }
+$('#cancel').onclick = closePanel;
+map.on('click', e => {
+  if (!placing) return;
+  if (!draft) {
+    draft = L.marker(e.latlng, {draggable:true}).addTo(map);
+    draft.on('dragend', () => setLL(draft.getLatLng()));
+  } else draft.setLatLng(e.latlng);
+  setLL(e.latlng);
+  f.hidden = false; $('#hint').hidden = true;
+  if (!f.occurred_at.value) { const d = new Date(Date.now() - new Date().getTimezoneOffset()*6e4); f.occurred_at.value = d.toISOString().slice(0,16); }
+});
+function setLL(ll) { f.lat.value = ll.lat.toFixed(6); f.lng.value = ll.lng.toFixed(6); }
+
+f.onsubmit = async e => {
+  e.preventDefault();
+  const fd = new FormData(f), v = Object.fromEntries(fd);
+  const rec = {...v, lat:+v.lat, lng:+v.lng, killed:+v.killed, injured:+v.injured, buildings:+v.buildings,
+    occurred_at:new Date(v.occurred_at).toISOString(), services:[...document.querySelectorAll('#services input:checked')].map(i => i.value)};
+  const {error} = await sb.from('incidents').insert(rec);
+  if (error) { $('#msg').textContent = 'Не збережено: ' + error.message; return; }
+  closePanel(); f.reset(); load();
+};
+
+sb.channel('inc').on('postgres_changes', {event:'*', schema:'public', table:'incidents'}, load).subscribe();
+sb.auth.onAuthStateChange(load);
+</script>
+</body>
+</html>
