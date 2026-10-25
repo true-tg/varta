@@ -97,8 +97,8 @@ body.placing #map{cursor:crosshair}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
-const SB_URL = 'https://YOUR-PROJECT.supabase.co';   // ← ваш проєкт
-const SB_KEY = 'YOUR-ANON-PUBLIC-KEY';                // ← публічний anon key
+const SB_URL = 'https://ogazzqmkkvzigwiguqtg.supabase.co';   // ← ваш проєкт
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9nYXp6cW1ra3Z6aWd3aWd1cXRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI5Mjk1MTQsImV4cCI6MjEwODUwNTUxNH0.SC6PSQAO-bAL1dHbMqVCA05E2SnrZHk0Zj4jLDjtCHk';                // ← публічний anon key
 const sb = supabase.createClient(SB_URL, SB_KEY);
 
 const TYPES = {debris:['Падіння уламків','#f2b84b'], hit:['Прямий приліт','#ef6f5e'], fire:['Пожежа','#ff9e5e'],
