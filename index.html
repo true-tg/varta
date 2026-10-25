@@ -74,6 +74,26 @@ a.btn{font:600 13px Onest,sans-serif;text-decoration:none;color:var(--paper);bor
 .stbtn{margin-top:8px;width:100%}
 .cell{background:transparent!important;border:0!important;box-shadow:none!important;color:var(--paper)!important;font:600 12px Onest,sans-serif}
 .cell::before{display:none!important}
+#air{position:absolute;z-index:720;top:74px;left:12px;width:min(320px,calc(100% - 24px));max-height:calc(100% - 330px);overflow:auto;background:rgba(12,26,45,.94);border:1px solid #27466b;padding:10px 12px;border-radius:2px 12px 2px 12px}
+#air .top{display:flex;gap:8px;align-items:center}
+#air .top b{font:600 13px Unbounded,sans-serif}
+#air button{padding:6px 10px}
+#air input[type=checkbox]{width:auto;margin:0}
+#air .ctl{display:flex;gap:8px;align-items:center;margin:10px 0 4px;color:var(--mute)}
+#air .ctl select{width:auto;margin:0;padding:4px 6px}
+#aEnd{margin-top:12px;padding-top:10px;border-top:1px solid #27466b;display:flex;gap:8px}
+#aEnd select{margin:0}
+.arow{display:flex;gap:8px;align-items:center;padding:5px 2px;border-top:1px solid #1d3558;cursor:pointer}
+.arow:hover{background:rgba(127,179,213,.08)}
+.arow .t{flex:1}
+.arow small{color:var(--mute)}
+.arow.act small{color:var(--coral)}
+.air{width:40px;height:40px;filter:drop-shadow(0 0 5px #ef6f5e) drop-shadow(0 0 1px #000)}
+.air svg{display:block}
+.hdl{width:18px;height:18px;border-radius:50%;background:var(--amber);border:2px solid var(--ink);box-shadow:0 0 0 4px rgba(242,184,75,.35);cursor:grab}
+path.trail{filter:drop-shadow(0 0 3px rgba(239,111,94,.8))}
+.endm{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:700 14px Onest,sans-serif;color:var(--ink);background:var(--c);border:2px solid var(--ink)}
+.abtn{margin-top:8px;width:100%}
 </style>
 </head>
 <body>
@@ -88,6 +108,28 @@ a.btn{font:600 13px Onest,sans-serif;text-decoration:none;color:var(--paper);bor
   <button id="add">Занести подію</button>
 </header>
 <div id="banner" role="alert" hidden></div>
+<section id="air" aria-label="Повітряні цілі">
+  <div class="top"><b>Повітряні цілі</b><div class="sp"></div><button id="airNew">+ Ціль</button><button id="airTgl" class="ghost" aria-expanded="true" title="Згорнути / розгорнути">▾</button></div>
+  <div id="airBody">
+    <form id="airForm" hidden>
+      <p class="hint" id="airHint"></p>
+      <div class="row">
+        <label class="f">Тип<select id="aKind"></select></label>
+        <label class="f">Курс, °<input type="number" id="aHead" min="0" max="359" step="1" value="45"></label>
+        <label class="f">км/год<input type="number" id="aSpeed" min="20" max="900" step="1" value="180"></label>
+      </div>
+      <label class="f">Назва (необов’язково)<input id="aLabel" maxlength="40"></label>
+      <div class="actions"><button type="submit" id="aOk">Запустити</button><button type="button" class="ghost" id="aCancel">Скасувати</button></div>
+      <div id="aEnd" hidden>
+        <select id="aReason"><option value="shot">Збито</option><option value="hit">Влучання</option><option value="lost">Втрачено</option></select>
+        <button type="button" id="aEndBtn" class="ghost">Завершити ціль</button>
+      </div>
+    </form>
+    <div class="ctl"><label><input type="checkbox" id="airAll"> Усі маршрути</label><div class="sp"></div>
+      <select id="airPer" aria-label="Період"><option value="today">Сьогодні</option><option value="7d">7 діб</option><option value="all">Усе</option></select></div>
+    <div id="airList"></div>
+  </div>
+</section>
 <div id="legend"></div>
 <section id="tl" aria-label="Таймлайн">
   <div class="top"><b>Таймлайн дня</b><span id="tlInfo" class="hint" style="margin:0"></span><div class="sp"></div><button id="tgl" aria-expanded="false" title="Розгорнути / згорнути">▴</button></div>
@@ -185,6 +227,7 @@ function draw() {
   $('#tlInfo').textContent = tl.on ? `на карті: ${vis.length}` : '';
   $('#n24').textContent = rows.filter(r => new Date(r.occurred_at) >= day).length;
   $('#nAll').textContent = rows.length;
+  drawAir();
 }
 
 async function load() {
@@ -329,6 +372,239 @@ $('#tlPlay').onclick = () => tl.timer ? stop() : play();
 $('#tlReset').onclick = () => { stop(); setMin(0); };
 $('#tlDay').onchange = e => { if (!e.target.value) return; stop(); tl.day = e.target.value; setMin(0); };
 $('#sl').oninput = e => { stop(); setMin(+e.target.value); };
+
+// ================= ПОВІТРЯНІ ЦІЛІ =================
+const KINDS = {shahed:{name:'Шахед', speed:180}};
+const ICON = `<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g transform="rotate(90 20 20)">
+<path d="M7.01516 20.1095C7.23825 21.0284 9.86853 21.3071 11.2125 21.3301H14.4316L28.0165 30.776C28.2265 30.9221 28.4735 31 28.726 31H32.3958C32.4911 31 32.5684 30.9195 32.5684 30.8203C32.5684 30.721 32.4911 30.6405 32.3958 30.6405L31.8433 30.6405V22.4804C31.8433 22.3613 31.7505 22.2647 31.6361 22.2647L30.8765 22.2647C30.6095 22.2647 30.3931 22.0394 30.3931 21.7614V21.5115L32.2749 21.5115V20.6128L32.6892 20.6128L32.6892 22.2607C32.6892 22.2645 32.6895 22.2683 32.6901 22.2721L32.8628 23.3905C32.8763 23.4779 33 23.4676 33 23.3791V16.6482C33 16.5595 32.8759 16.5495 32.8627 16.6371L32.6901 17.7854C32.6895 17.7891 32.6892 17.7928 32.6892 17.7965L32.6892 19.3906H32.2749V18.4919H30.3931V18.2386C30.3931 17.9606 30.6095 17.7353 30.8765 17.7353L31.6361 17.7353C31.7505 17.7353 31.8433 17.6387 31.8433 17.5196V9.35948L32.3958 9.35948C32.4911 9.35948 32.5684 9.279 32.5684 9.17974C32.5684 9.08047 32.4911 9 32.3958 9L28.726 9C28.4735 9 28.2265 9.07793 28.0165 9.22397L14.4833 18.634H11.2125L11.2125 18.6407C9.86853 18.6637 7.23825 18.9424 7.01516 19.8613C7.00516 19.8997 7 19.94 7 19.982L7.00001 19.9854L7 19.9888C7 20.0308 7.00516 20.0711 7.01516 20.1095Z" fill="#F7F6F4"/>
+<path d="M32.3955 8.75C32.6383 8.75 32.8183 8.95195 32.8184 9.17969C32.8184 9.40744 32.6383 9.60938 32.3955 9.60938H32.0938V17.5195C32.0938 17.7671 31.8976 17.9854 31.6357 17.9854H30.877C30.7575 17.9854 30.6437 18.089 30.6436 18.2383V18.2422H32.4395V17.7969C32.4395 17.7806 32.44 17.7638 32.4424 17.748L32.6152 16.5996C32.6436 16.4117 32.8077 16.3153 32.9561 16.3271C33.1039 16.3391 33.25 16.4597 33.25 16.6484V23.3789L33.2432 23.4463C33.2134 23.5957 33.0863 23.6895 32.957 23.7002C32.8087 23.7125 32.6442 23.6164 32.6152 23.4287L32.4434 22.3105C32.4408 22.2942 32.4395 22.2773 32.4395 22.2607V21.7617H30.6436C30.6437 21.911 30.7575 22.0146 30.877 22.0146H31.6357C31.8976 22.0146 32.0938 22.2329 32.0938 22.4805V30.3906H32.3955C32.6383 30.3906 32.8184 30.5926 32.8184 30.8203C32.8183 31.048 32.6383 31.25 32.3955 31.25H28.7256C28.4215 31.2499 28.1252 31.156 27.874 30.9814L14.3535 21.5801H11.208C10.5258 21.5684 9.51442 21.4919 8.63965 21.2998C8.20357 21.204 7.78786 21.0765 7.46094 20.9062C7.14421 20.7413 6.85755 20.5073 6.77441 20.1719L6.77344 20.1729C6.75794 20.1133 6.75 20.051 6.75 19.9883V19.9824L6.75586 19.8887C6.75971 19.8583 6.76577 19.8284 6.77344 19.7988C6.85653 19.4633 7.14417 19.2294 7.46094 19.0645C7.78786 18.8942 8.20357 18.7667 8.63965 18.6709C9.4148 18.5007 10.2973 18.4234 10.9629 18.3994V18.3838H14.4053L27.874 9.01855C28.1252 8.84398 28.4215 8.75009 28.7256 8.75H32.3955Z" stroke="#3F4246" stroke-width="1"/>
+</g>
+
+</svg>`;                                   // іконка «Шахед» (ніс вгору = курс 0°)
+const REASON = {shot:['Збито','#5fd4d0','×'], hit:['Влучання','#ef6f5e','✹'], lost:['Втрачено','#8aa3bd','?']};
+//<math>
+const RAD = Math.PI/180, ER = 6371000;
+function dest(lat, lng, brg, m) {
+  const d = m/ER, b = brg*RAD, p1 = lat*RAD, l1 = lng*RAD;
+  const p2 = Math.asin(Math.sin(p1)*Math.cos(d) + Math.cos(p1)*Math.sin(d)*Math.cos(b));
+  const l2 = l1 + Math.atan2(Math.sin(b)*Math.sin(d)*Math.cos(p1), Math.cos(d) - Math.sin(p1)*Math.sin(p2));
+  return [p2/RAD, ((l2/RAD + 540) % 360) - 180];
+}
+function bearing(a, b) {
+  const p1 = a[0]*RAD, p2 = b[0]*RAD, dl = (b[1]-a[1])*RAD;
+  return (Math.atan2(Math.sin(dl)*Math.cos(p2), Math.cos(p1)*Math.sin(p2) - Math.sin(p1)*Math.cos(p2)*Math.cos(dl))/RAD + 360) % 360;
+}
+function distM(a, b) {
+  const dp = (b[0]-a[0])*RAD, dl = (b[1]-a[1])*RAD;
+  const h = Math.sin(dp/2)**2 + Math.cos(a[0]*RAD)*Math.cos(b[0]*RAD)*Math.sin(dl/2)**2;
+  return 2*ER*Math.asin(Math.sqrt(h));
+}
+// Позиція цілі на момент tms: рух по «етапах» (legs), кожен етап — курс і швидкість від точки зміни.
+function posAt(T, tms) {
+  const endMs = T.ended_at ? +new Date(T.ended_at) : Infinity, end = Math.min(tms, endMs);
+  const legs = T.legs.filter(l => +new Date(l.t) <= end);
+  if (!legs.length) return null;
+  const pts = legs.map(l => [l.lat, l.lng]), a = legs[legs.length-1];
+  const done = T.status === 'ended' && tms >= endMs;
+  const head = (done && T.end_lat != null) ? [T.end_lat, T.end_lng] : dest(a.lat, a.lng, a.heading, (end - new Date(a.t))/1000 * a.speed/3.6);
+  pts.push(head);
+  return {pts, head, heading:a.heading, speed:a.speed, done};
+}
+//</math>
+const air = {list:[], objs:new Map(), vis:new Map(), showAll:false, period:'today', sel:null};
+const airLayer = L.layerGroup().addTo(map);
+const byId = id => air.list.find(t => t.id === id);
+const fmt = d => new Date(d).toLocaleString('uk-UA', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+const aName = T => T.label || `${KINDS[T.kind]?.name || T.kind} ${fmt(T.started_at)}`;
+const curTms = () => tl.on ? new Date(tl.day + 'T00:00:00').getTime() + Math.floor(tl.min)*60000 : Date.now();
+function inPeriod(T) {
+  const t = +new Date(T.started_at);
+  return air.period === 'all' || (air.period === '7d' ? t > Date.now() - 7*864e5 : dayKey(new Date(t)) === dayKey(new Date()));
+}
+function isVisible(T, tms) {
+  if (tl.on) return dayKey(new Date(T.started_at)) === tl.day && +new Date(T.started_at) <= tms;
+  if (air.vis.has(T.id)) return air.vis.get(T.id);
+  return T.status === 'active' || (air.showAll && inPeriod(T));
+}
+const trailKm = pts => pts.reduce((s, p, i) => i ? s + distM(pts[i-1], p) : 0, 0)/1000;
+
+function drawAir() {
+  const tms = curTms(), seen = new Set();
+  air.list.forEach(T => {
+    if (!isVisible(T, tms)) return;
+    const p = posAt(T, tms); if (!p) return;
+    seen.add(T.id);
+    let o = air.objs.get(T.id);
+    if (!o) {
+      o = {line:L.polyline([], {className:'trail', color:'#ff7a59', weight:2}).addTo(airLayer),
+           proj:L.polyline([], {color:'#ff7a59', weight:1.5, dashArray:'2 7', opacity:.6, interactive:false}).addTo(airLayer)};
+      o.line.on('click', () => { air.sel = T.id; drawAir(); });
+      air.objs.set(T.id, o);
+    }
+    const sel = air.sel === T.id;
+    o.line.setLatLngs(p.pts).setStyle({opacity: sel || T.status === 'active' ? .95 : .55, weight: sel ? 3.5 : 2});
+    o.proj.setLatLngs(p.done ? [] : [p.head, dest(p.head[0], p.head[1], p.heading, p.speed/3.6*900)]);   // прогноз на 15 хв
+    if (!p.done) {
+      if (o.end) { airLayer.removeLayer(o.end); o.end = null; }
+      if (!o.head) {
+        o.head = L.marker(p.head, {icon:L.divIcon({className:'', html:`<div class="air">${ICON}</div>`, iconSize:[40,40]}), zIndexOffset:500}).addTo(airLayer)
+          .bindPopup(() => airPopup(T.id), {minWidth:230});
+      }
+      o.head.setLatLng(p.head);
+      const el = o.head.getElement(); if (el) el.firstChild.style.transform = `rotate(${p.heading}deg)`;
+    } else {
+      if (o.head) { airLayer.removeLayer(o.head); o.head = null; }
+      if (!o.end) {
+        const r = REASON[T.end_reason] || ['Завершено', '#8aa3bd', '·'];
+        o.end = L.marker(p.head, {icon:L.divIcon({className:'', html:`<div class="endm" style="--c:${r[1]}">${r[2]}</div>`, iconSize:[22,22]})}).addTo(airLayer)
+          .bindPopup(() => airPopup(T.id), {minWidth:230});
+      }
+    }
+  });
+  for (const [id, o] of air.objs) if (!seen.has(id)) {
+    [o.line, o.proj, o.head, o.end].forEach(x => x && airLayer.removeLayer(x)); air.objs.delete(id);
+  }
+}
+
+function airPopup(id) {
+  const T = byId(id); if (!T) return '';
+  const tms = curTms(), p = posAt(T, tms); if (!p) return '';
+  const mins = Math.max(0, Math.round((Math.min(tms, T.ended_at ? +new Date(T.ended_at) : Infinity) - new Date(T.started_at))/60000));
+  const st = T.status === 'active' ? 'у польоті' : (REASON[T.end_reason]?.[0] || 'завершена');
+  let h = `<b>${esc(aName(T))}</b><br>Статус: ${st}<br>Курс: ${Math.round(p.heading)}° · ${p.speed} км/год<br>Позиція: ${p.head[0].toFixed(4)}, ${p.head[1].toFixed(4)}<br>Пройдено: ${trailKm(p.pts).toFixed(1)} км за ${mins} хв`;
+  h += T.status === 'active' && !tl.on ? `<br><button class="abtn" data-air="edit" data-id="${T.id}">Змінити курс і швидкість</button>`
+                                        : `<br><button class="abtn" data-air="zoom" data-id="${T.id}">Показати весь маршрут</button>`;
+  return h;
+}
+map.on('popupopen', e => e.popup.getElement().querySelectorAll('.abtn').forEach(b => b.onclick = () => {
+  map.closePopup(); b.dataset.air === 'edit' ? startEdit(b.dataset.id) : focusAir(b.dataset.id);
+}));
+function focusAir(id) {
+  const T = byId(id), p = T && posAt(T, curTms()); if (!p) return;
+  air.vis.set(id, true); air.sel = id; drawAir(); renderAirList();
+  map.fitBounds(L.latLngBounds(p.pts).pad(.35), {maxZoom:12});
+}
+
+// ---- список і історія ----
+function renderAirList() {
+  const rows_ = air.list.filter(T => T.status === 'active' || inPeriod(T)).slice(0, 80), now = Date.now();
+  const n = air.list.filter(T => T.status === 'active').length;
+  $('#airList').innerHTML = (n ? `<div class="hint" style="margin:0 0 4px">У польоті: ${n}</div>` : '') +
+    (rows_.map(T => `<div class="arow ${T.status === 'active' ? 'act' : ''}" data-id="${T.id}"><input type="checkbox" ${isVisible(T, now) ? 'checked' : ''} aria-label="Показати маршрут"><span class="t">${esc(aName(T))}</span><small>${T.status === 'active' ? 'у польоті' : (REASON[T.end_reason]?.[0] || 'завершена')}</small></div>`).join('')
+     || '<div class="hint">За цей період цілей немає.</div>');
+}
+$('#airList').onclick = e => {
+  const row = e.target.closest('.arow'); if (!row) return;
+  if (e.target.type === 'checkbox') { air.vis.set(row.dataset.id, e.target.checked); drawAir(); } else focusAir(row.dataset.id);
+};
+$('#airAll').onchange = e => { air.showAll = e.target.checked; air.vis.clear(); drawAir(); renderAirList(); };
+$('#airPer').onchange = e => { air.period = e.target.value; drawAir(); renderAirList(); };
+$('#airTgl').onclick = () => { const o = $('#airBody').hidden; $('#airBody').hidden = !o; $('#airTgl').textContent = o ? '▾' : '▴'; $('#airTgl').setAttribute('aria-expanded', o); };
+if (innerWidth < 760) $('#airTgl').click();
+
+// ---- постановка / зміна курсу ----
+let ed = null, hdl = null, edLine = null, edPin = null, dragging = false;
+$('#aKind').innerHTML = Object.entries(KINDS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('');
+$('#aKind').onchange = () => { $('#aSpeed').value = KINDS[$('#aKind').value].speed; };
+const edPos = () => !ed ? null : ed.mode === 'new' ? ed.start : (byId(ed.id) && posAt(byId(ed.id), Date.now())?.head);
+const handleDist = () => 90 * 156543.03 * Math.cos(map.getCenter().lat*RAD) / Math.pow(2, map.getZoom());   // ≈ 90 px
+function placeHandle() {
+  const pos = edPos(); if (!pos) return;
+  const hp = dest(pos[0], pos[1], ed.heading, handleDist());
+  if (!hdl) {
+    hdl = L.marker(hp, {draggable:true, zIndexOffset:2000, icon:L.divIcon({className:'', html:'<div class="hdl"></div>', iconSize:[18,18]})}).addTo(map);
+    hdl.on('dragstart', () => dragging = true);
+    hdl.on('drag', () => { const ll = hdl.getLatLng(), p0 = edPos(); ed.heading = Math.round(bearing(p0, [ll.lat, ll.lng])) % 360; $('#aHead').value = ed.heading; updEdLine(); });
+    hdl.on('dragend', () => { dragging = false; placeHandle(); });
+  } else hdl.setLatLng(hp);
+  updEdLine();
+}
+function updEdLine() {
+  const pos = edPos(); if (!pos || !hdl) return; const ll = hdl.getLatLng();
+  if (!edLine) edLine = L.polyline([], {color:'#f2b84b', weight:2, dashArray:'6 6', interactive:false}).addTo(map);
+  edLine.setLatLngs([pos, [ll.lat, ll.lng]]);
+}
+function cancelAir() {
+  ed = null; dragging = false; document.body.classList.remove('placing');
+  [hdl, edLine, edPin].forEach(x => x && map.removeLayer(x)); hdl = edLine = edPin = null;
+  $('#airForm').hidden = true; $('#aEnd').hidden = true;
+}
+function startNew() {
+  if (tl.on) return banner('Закрийте таймлайн, щоб додавати цілі', 'info', 3000);
+  cancelAir(); closePanel();
+  ed = {mode:'new', heading:45, start:null};
+  $('#aKind').disabled = false; $('#aKind').onchange(); $('#aHead').value = 45; $('#aLabel').value = ''; $('#aLabel').disabled = false;
+  $('#aOk').textContent = 'Запустити'; $('#airHint').textContent = 'Клацніть на карті, де зараз ціль. Жовту точку тягніть, щоб задати курс.';
+  $('#airForm').hidden = false; document.body.classList.add('placing');
+  if ($('#airBody').hidden) $('#airTgl').click();
+}
+function startEdit(id) {
+  const T = byId(id), p = T && posAt(T, Date.now()); if (!p || tl.on) return;
+  cancelAir(); closePanel();
+  ed = {mode:'edit', id, heading:Math.round(p.heading)};
+  $('#aKind').value = T.kind; $('#aKind').disabled = true; $('#aLabel').value = T.label || ''; $('#aLabel').disabled = true;
+  $('#aHead').value = ed.heading; $('#aSpeed').value = p.speed;
+  $('#aOk').textContent = 'Застосувати'; $('#airHint').textContent = `${aName(T)}: тягніть жовту точку або введіть курс. Зміни діють із поточної позиції цілі.`;
+  $('#airForm').hidden = false; $('#aEnd').hidden = false;
+  if ($('#airBody').hidden) $('#airTgl').click();
+  placeHandle();
+}
+$('#airNew').onclick = startNew;
+$('#add').addEventListener('click', cancelAir);
+$('#aCancel').onclick = cancelAir;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && ed) cancelAir(); });
+$('#aHead').oninput = () => { if (!ed) return; ed.heading = ((+$('#aHead').value % 360) + 360) % 360; placeHandle(); };
+map.on('click', e => {
+  if (!ed || ed.mode !== 'new') return;
+  ed.start = [e.latlng.lat, e.latlng.lng];
+  if (!edPin) edPin = L.circleMarker(e.latlng, {radius:6, color:'#f2b84b', fillColor:'#0c1a2d', fillOpacity:1, interactive:false}).addTo(map); else edPin.setLatLng(e.latlng);
+  placeHandle();
+});
+map.on('zoomend', () => { if (ed && !dragging) placeHandle(); });
+
+$('#airForm').onsubmit = async e => {
+  e.preventDefault(); if (!ed) return;
+  const heading = ((Math.round(+$('#aHead').value) % 360) + 360) % 360, speed = Math.max(20, Math.min(900, +$('#aSpeed').value || 180));
+  if (ed.mode === 'new') {
+    if (!ed.start) return banner('Спершу поставте ціль на карті', 'info', 3000);
+    const t = new Date().toISOString();
+    const row = {kind:$('#aKind').value, label:$('#aLabel').value.trim() || null, started_at:t, legs:[{t, lat:ed.start[0], lng:ed.start[1], heading, speed}]};
+    const {data, error} = await sb.from('air_targets').insert(row).select().single();
+    if (error) return banner('Не збережено: ' + error.message, 'err', 8000);
+    air.list.unshift(data); air.sel = data.id;
+  } else {
+    const T = byId(ed.id), p = T && posAt(T, Date.now());
+    if (p && (heading !== Math.round(p.heading) || speed !== p.speed)) {
+      const leg = {t:new Date().toISOString(), lat:p.head[0], lng:p.head[1], heading, speed};
+      const {error} = await sb.rpc('air_append_leg', {p_id:T.id, p_leg:leg});
+      if (error) return banner('Не збережено: ' + error.message, 'err', 8000);
+      T.legs = [...T.legs, leg];
+    }
+  }
+  cancelAir(); drawAir(); renderAirList();
+};
+$('#aEndBtn').onclick = async () => {
+  const T = ed && ed.mode === 'edit' && byId(ed.id), p = T && posAt(T, Date.now()); if (!p) return;
+  const patch = {status:'ended', ended_at:new Date().toISOString(), end_lat:p.head[0], end_lng:p.head[1], end_reason:$('#aReason').value};
+  const {error} = await sb.from('air_targets').update(patch).eq('id', T.id);
+  if (error) return banner('Не збережено: ' + error.message, 'err', 8000);
+  Object.assign(T, patch); cancelAir(); drawAir(); renderAirList();
+};
+
+async function loadAir() {
+  const {data, error} = await sb.from('air_targets').select('*').order('started_at', {ascending:false}).limit(1000);
+  if (error) { $('#airList').innerHTML = '<div class="hint">Немає таблиці air_targets: виконайте schema_air.sql</div>'; return; }
+  air.list = data; renderAirList(); drawAir();
+}
+sb.channel('air').on('postgres_changes', {event:'*', schema:'public', table:'air_targets'}, p => {
+  if (p.eventType === 'INSERT' && !byId(p.new.id)) {
+    banner('Нова повітряна ціль: ' + aName(p.new), 'err', 10000, () => map.flyTo([p.new.legs[0].lat, p.new.legs[0].lng], 11)); beep();
+  }
+  loadAir();
+}).subscribe();
+setInterval(() => { if (!tl.on) drawAir(); if (ed && !dragging) placeHandle(); }, 1000);
+loadAir();
 </script>
 </body>
 </html>
