@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ВАРТА — таблиця подій</title>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;600&family=Unbounded:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0c1a2d;--ink2:#13294a;--line:#7fb3d5;--paper:#e9efe8;--amber:#f2b84b;--coral:#ef6f5e;--mute:#8aa3bd}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--paper);font:14px/1.45 Onest,system-ui,sans-serif}
+header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px;border-bottom:1px solid #27466b;position:sticky;top:0;background:var(--ink);z-index:5}
+.brand b{font:600 18px Unbounded,sans-serif;letter-spacing:.14em}
+.sp{flex:1}
+input,select{background:var(--ink2);color:var(--paper);border:1px solid #27466b;padding:8px;border-radius:2px 8px 2px 8px;font:inherit}
+a.btn,button{font:600 13px Onest,sans-serif;cursor:pointer;text-decoration:none;color:var(--ink);background:var(--amber);border:0;padding:10px 16px;border-radius:2px 12px 2px 12px}
+a.btn{color:var(--paper);background:transparent;border:1px solid var(--line)}
+.wrap{overflow:auto;padding:0 12px 24px}
+table{border-collapse:collapse;width:100%;min-width:1100px}
+th,td{padding:8px 10px;border-bottom:1px solid #1d3558;text-align:left;vertical-align:top}
+th{position:sticky;top:62px;background:var(--ink2);cursor:pointer;white-space:nowrap;color:var(--mute);font-weight:600}
+th:hover{color:var(--paper)}
+tr:hover td{background:rgba(127,179,213,.07)}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;border:1px solid var(--c);color:var(--c);white-space:nowrap}
+#cnt{color:var(--mute)}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><b>ВАРТА</b> <span id="cnt"></span></div>
+  <input id="q" placeholder="Пошук: адреса, джерело, примітка" size="28">
+  <select id="ft"><option value="">Усі типи</option></select>
+  <select id="fd"><option value="">Усі райони</option></select>
+  <label>з <input type="date" id="d1"></label><label>по <input type="date" id="d2"></label>
+  <div class="sp"></div>
+  <button id="csv">Завантажити CSV</button>
+  <a class="btn" href="index.html">Карта</a>
+</header>
+<div class="wrap"><table><thead><tr id="hd"></tr></thead><tbody id="bd"></tbody></table></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const SB_URL = 'https://ogazzqmkkvzigwiguqtg.supabase.co';   // ← ваш проєкт
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9nYXp6cW1ra3Z6aWd3aWd1cXRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI5Mjk1MTQsImV4cCI6MjEwODUwNTUxNH0.SC6PSQAO-bAL1dHbMqVCA05E2SnrZHk0Zj4jLDjtCHk';                // ← публічний anon key
+const sb = supabase.createClient(SB_URL, SB_KEY);
+const TYPES = {debris:['Падіння уламків','#f2b84b'], hit:['Прямий приліт','#ef6f5e'], fire:['Пожежа','#ff9e5e'], infra:['Пошкодження інфраструктури','#5fd4d0'], uxo:['Нерозірваний боєприпас','#b99cff']};
+const IMPACT = {residential:'Житлова забудова', critical:'Критична інфраструктура', commercial:'Комерційний об’єкт', open:'Відкрита територія'};
+const STATUS = {new:'нова', working:'опрацьовується', closed:'закрита'};
+const COLS = [
+  ['occurred_at','Дата і час', r => new Date(r.occurred_at).toLocaleString('uk-UA')],
+  ['type','Тип', r => (TYPES[r.type]||['?'])[0]],
+  ['district','Район', r => r.district],
+  ['address','Адреса / орієнтир', r => r.address||''],
+  ['impact','Що постраждало', r => IMPACT[r.impact]||''],
+  ['killed','Загиблі', r => r.killed],
+  ['injured','Поранені', r => r.injured],
+  ['buildings','Будівлі', r => r.buildings],
+  ['services','Служби', r => (r.services||[]).join(', ')],
+  ['status','Статус', r => STATUS[r.status]||''],
+  ['source','Джерело', r => r.source||''],
+  ['note','Примітка', r => r.note||''],
+  ['lat','Координати', r => `${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}`]
+];
+const $ = s => document.querySelector(s);
+let rows = [], sortK = 'occurred_at', asc = false;
+$('#hd').innerHTML = COLS.map(c => `<th data-k="${c[0]}">${c[1]}</th>`).join('');
+$('#hd').onclick = e => { const k = e.target.dataset.k; if (!k) return; asc = (k === sortK) ? !asc : true; sortK = k; render(); };
+for (const [k,[n]] of Object.entries(TYPES)) $('#ft').add(new Option(n,k));
+for (const d of ['Голосіївський','Дарницький','Деснянський','Дніпровський','Оболонський','Печерський','Подільський','Святошинський','Солом’янський','Шевченківський']) $('#fd').add(new Option(d,d));
+['q','ft','fd','d1','d2'].forEach(i => $('#'+i).oninput = render);
+
+function filtered() {
+  const q = $('#q').value.toLowerCase(), t = $('#ft').value, d = $('#fd').value, a = $('#d1').value, b = $('#d2').value;
+  const key = r => { const x = new Date(r.occurred_at); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; };
+  return rows.filter(r => (!t || r.type===t) && (!d || r.district===d) && (!a || key(r)>=a) && (!b || key(r)<=b) &&
+    (!q || [r.address,r.source,r.note,r.district].join(' ').toLowerCase().includes(q)))
+    .sort((x,y) => { const u = x[sortK], v = y[sortK]; const c = (u>v)-(u<v); return asc ? c : -c; });
+}
+function render() {
+  const list = filtered();
+  $('#cnt').textContent = `${list.length} із ${rows.length}`;
+  const body = $('#bd'); body.textContent = '';
+  for (const r of list) {
+    const tr = body.insertRow();
+    COLS.forEach(c => {
+      const td = tr.insertCell();
+      if (c[0] === 'type') { const s = document.createElement('span'); s.className = 'tag'; s.style.setProperty('--c', (TYPES[r.type]||[0,'#fff'])[1]); s.textContent = c[2](r); td.append(s); }
+      else td.textContent = c[2](r);
+    });
+  }
+}
+$('#csv').onclick = () => {
+  const q = v => '"' + String(v ?? '').replace(/"/g,'""') + '"';
+  const csv = '\ufeff' + [COLS.map(c => q(c[1])).join(',')].concat(filtered().map(r => COLS.map(c => q(c[2](r))).join(','))).join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = `varta_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+};
+async function load() {
+  const {data, error} = await sb.from('incidents').select('*').order('occurred_at', {ascending:false}).limit(10000);
+  if (error) { $('#cnt').textContent = 'Помилка: ' + error.message; return; }
+  rows = data; render();
+}
+sb.channel('inc').on('postgres_changes', {event:'*', schema:'public', table:'incidents'}, load).subscribe();
+load();
+</script>
+</body>
+</html>
