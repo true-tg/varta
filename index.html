@@ -53,6 +53,19 @@ body.placing #map{cursor:crosshair}
 .leaflet-popup-content b{font-family:Unbounded,sans-serif;font-size:13px}
 .leaflet-control-attribution{background:rgba(12,26,45,.8)!important;color:var(--mute)!important}
 .leaflet-control-attribution a{color:var(--line)!important}
+a.btn{font:600 13px Onest,sans-serif;text-decoration:none;color:var(--paper);border:1px solid var(--line);padding:10px 16px;border-radius:2px 12px 2px 12px;background:rgba(12,26,45,.88)}
+#tl{position:absolute;z-index:700;left:260px;right:12px;bottom:28px;background:rgba(12,26,45,.94);border:1px solid #27466b;padding:8px 12px;border-radius:2px 12px 2px 12px}
+#tl .top{display:flex;gap:10px;align-items:center}
+#tl .top b{font:600 13px Unbounded,sans-serif}
+#tlBody{margin-top:8px}
+#tlBody .ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#tlBody input[type=date],#tlBody select{width:auto;margin:0}
+#tlBody button{padding:8px 14px}
+#clock{font:600 20px Unbounded,sans-serif;color:var(--amber);min-width:76px}
+#sl{width:100%;margin:10px 0 0;padding:0;accent-color:var(--amber)}
+.ticks{display:flex;justify-content:space-between;color:var(--mute);font-size:11px}
+#tgl{padding:2px 10px;background:transparent;color:var(--paper);border:1px solid var(--line)}
+@media (max-width:760px){#tl{left:12px;bottom:200px}header{flex-wrap:wrap}}
 </style>
 </head>
 <body>
@@ -62,9 +75,27 @@ body.placing #map{cursor:crosshair}
   <div class="stat"><b id="n24">–</b> за 24 год</div>
   <div class="stat"><b id="nAll">–</b> усього</div>
   <div class="sp"></div>
+  <a class="btn" href="table.html">Таблиця подій</a>
   <button id="add">Занести подію</button>
 </header>
 <div id="legend"></div>
+<section id="tl" aria-label="Таймлайн">
+  <div class="top"><b>Таймлайн дня</b><span id="tlInfo" class="hint" style="margin:0"></span><div class="sp"></div><button id="tgl" aria-expanded="false" title="Розгорнути / згорнути">▴</button></div>
+  <div id="tlBody" hidden>
+    <div class="ctl">
+      <input type="date" id="tlDay" aria-label="День">
+      <button id="tlPlay">Старт</button>
+      <button id="tlReset" class="ghost">На початок</button>
+      <select id="tlSpeed" aria-label="Швидкість">
+        <option value="1">Реальний час</option><option value="10">×10</option>
+        <option value="60" selected>×60 (година за хвилину)</option><option value="360">×360</option>
+      </select>
+      <div class="sp"></div><span id="clock">00:00</span>
+    </div>
+    <input type="range" id="sl" min="0" max="1439" value="0" step="1" aria-label="Час доби">
+    <div class="ticks"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+  </div>
+</section>
 
 <aside id="panel" aria-label="Картка фіксації події">
   <h2>Картка фіксації події</h2>
@@ -131,15 +162,16 @@ $('#services').innerHTML = SERVICES.map(s => `<label><input type="checkbox" valu
 function draw() {
   layer.clearLayers();
   const day = Date.now() - 864e5;
-  const vis = rows.filter(r => !hidden.has(r.type));
+  const vis = rows.filter(r => !hidden.has(r.type) && inTl(r));
   vis.forEach(r => {
     const [name, color] = TYPES[r.type] || ['?', '#fff'];
-    const old = new Date(r.occurred_at) < day;
+    const old = tl.on ? (tl.min - minsOf(r) > 30) : new Date(r.occurred_at) < day;
     const icon = L.divIcon({className:'', html:`<div class="pt ${old?'old':''}" style="--c:${color}"></div>`, iconSize:[16,16]});
     L.marker([r.lat, r.lng], {icon}).addTo(layer).bindPopup(
       `<b>${name}</b><br>${new Date(r.occurred_at).toLocaleString('uk-UA')}<br>${esc(r.district)} · ${IMPACT[r.impact] || ''}` +
       `<br>${esc(r.address)}<br>Загиблі: ${r.killed}, поранені: ${r.injured}, будівлі: ${r.buildings}<br>Служби: ${esc((r.services||[]).join(', '))}<br>Статус: ${STATUS[r.status]||''}<br>${esc(r.note)}`);
   });
+  $('#tlInfo').textContent = tl.on ? `на карті: ${vis.length}` : '';
   $('#n24').textContent = rows.filter(r => new Date(r.occurred_at) >= day).length;
   $('#nAll').textContent = rows.length;
 }
@@ -178,6 +210,39 @@ f.onsubmit = async e => {
 
 sb.channel('inc').on('postgres_changes', {event:'*', schema:'public', table:'incidents'}, load).subscribe();
 load();
+
+// ---- ТАЙМЛАЙН ----
+const pad = n => String(n).padStart(2,'0');
+const dayKey = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const minsOf = r => { const d = new Date(r.occurred_at); return d.getHours()*60 + d.getMinutes(); };
+const tl = {on:false, day:dayKey(new Date()), min:0, timer:null};
+function inTl(r) { return !tl.on || (dayKey(new Date(r.occurred_at)) === tl.day && minsOf(r) <= Math.floor(tl.min)); }
+function setMin(m) {
+  tl.min = Math.max(0, Math.min(1439, m));
+  const v = Math.floor(tl.min);
+  $('#sl').value = v; $('#clock').textContent = `${pad(Math.floor(v/60))}:${pad(v%60)}`;
+  draw();
+}
+function stop() { clearInterval(tl.timer); tl.timer = null; $('#tlPlay').textContent = 'Старт'; }
+function play() {
+  if (tl.min >= 1439) setMin(0);
+  $('#tlPlay').textContent = 'Пауза';
+  tl.timer = setInterval(() => {
+    const step = (+$('#tlSpeed').value) * 0.25 / 60;   // хвилин доби за 250 мс
+    if (tl.min + step >= 1439) { setMin(1439); stop(); } else setMin(tl.min + step);
+  }, 250);
+}
+$('#tlDay').value = tl.day; $('#tlDay').max = tl.day;
+$('#tgl').onclick = () => {
+  const open = $('#tlBody').hidden;
+  $('#tlBody').hidden = !open; $('#tgl').textContent = open ? '▾' : '▴'; $('#tgl').setAttribute('aria-expanded', open);
+  tl.on = open; stop();
+  if (open) { const n = new Date(); setMin(tl.day === dayKey(n) ? n.getHours()*60 + n.getMinutes() : 0); } else draw();
+};
+$('#tlPlay').onclick = () => tl.timer ? stop() : play();
+$('#tlReset').onclick = () => { stop(); setMin(0); };
+$('#tlDay').onchange = e => { if (!e.target.value) return; stop(); tl.day = e.target.value; setMin(0); };
+$('#sl').oninput = e => { stop(); setMin(+e.target.value); };
 </script>
 </body>
 </html>
